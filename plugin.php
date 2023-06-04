@@ -1,12 +1,13 @@
 <?php
 /**
  * Plugin Name: Algolia Indexer
+ * Plugin URI: https://github.com/arpsed/algolia-indexer
  * Description: Implement Algolia indexing.
  * Author: Gogo
  * Author URI: https://github.com/arpsed
  * Version: 1.0.0
- * License: GPL v2 or later
- * License URI: https://www.gnu.org/licenses/gpl-2.0.html
+ * License: GPL v3 or later
+ * License URI: https://www.gnu.org/licenses/gpl-3.0.en.html
  * Text Domain: aglidx
  * Domain Path: /languages
  *
