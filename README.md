@@ -1,2 +1,2 @@
 # algolia-indexer
-WordPress plugin to implement Algolia indexing.
+Simple WordPress plugin to implement simple Algolia indexing.
