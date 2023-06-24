@@ -129,7 +129,7 @@ add_filter( 'gg_algolia_records', function( $records, $id, $ppp, $page ) {
 		'data' => $records,
 		'max'  => $max,
 	];
-}, 10, 3 );
+}, 10, 4 );
 
 add_filter( 'gg_algolia_settings', function( $settings ) {
 	$settings = [
@@ -156,3 +156,22 @@ add_filter( 'gg_algolia_settings', function( $settings ) {
 
 	return $settings;
 } );
+
+
+function gg_get_product_type_price( $product ) {
+	$sale_price    = 0;
+	$regular_price = 0;
+
+	if ( $product->is_type( 'simple' ) ) {
+		$sale_price    = $product->get_sale_price();
+		$regular_price = $product->get_regular_price();
+	} elseif ( $product->is_type( 'variable' ) ) {
+		$sale_price    = $product->get_variation_sale_price( 'min', true );
+		$regular_price = $product->get_variation_regular_price( 'max', true );
+	}
+
+	return [
+		'sale_price'    => $sale_price,
+		'regular_price' => $regular_price,
+	];
+}

@@ -3,7 +3,7 @@
 jQuery( $ => {
 	$( '#sendToAlgolia' ).on( 'click', e => {
 		const ppp = document.querySelector( '[name="ppp"]' ).value,
-			$progress = $( '.send-products-progress' ),
+			$progress = $( '.send-items-progress' ),
 			$button = $( 'button' );
 		let page = 0,
 			max = 0;
@@ -18,7 +18,7 @@ jQuery( $ => {
 				url: ajaxurl,
 				dataType: 'json',
 				data: {
-					action: 'gg_send_products',
+					action: 'gg_send_items',
 					nonce: document.getElementById( 'send_nonce' ).value,
 					ppp: ppp,
 					page: page,
