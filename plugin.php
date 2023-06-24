@@ -17,7 +17,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'AGLIDX_VER', '1.0.1' );
+define( 'AGLIDX_VER', '1.0.2' );
 define( 'AGLIDX_PATH', plugin_dir_path( __FILE__ ) );
 define( 'AGLIDX_URL', plugin_dir_url( __FILE__ ) );
 
@@ -141,7 +141,7 @@ HTML;
 
 			echo <<<'SCRIPT'
 <script>
-jQuery(e=>{e("#sendToAlgolia").on("click",a=>{let t=document.querySelector('[name="ppp"]').value,p=e(".send-products-progress"),d=e("button"),s=0,n=0;function o(){e.ajax({method:"POST",url:ajaxurl,dataType:"json",data:{action:"gg_send_products",nonce:document.getElementById("send_nonce").value,ppp:t,page:s},success(a){s=a.data.page,n=a.data.max,p.append(e("<li>").text(`${s} of ${n}`)),s<n?o():(p.append(e("<li>").text(window.texts.end)),d.prop("disabled",!1))},error(a,t,s){d.prop("disabled",!1),void 0!==a.responseJSON.data&&void 0!==a.responseJSON.data.message?p.append(e("<li>").text(a.responseJSON.data.message)):p.append(e("<li>").text(s))}})}d.prop("disabled",!0),p.append(e("<li>").text(window.texts.start)),o()})});
+jQuery(e=>{e("#sendToAlgolia").on("click",a=>{let t=document.querySelector('[name="ppp"]').value,p=e(".send-products-progress"),d=e("button"),s=0,n=0;function o(){e.ajax({method:"POST",url:ajaxurl,dataType:"json",data:{action:"gg_send_products",nonce:document.getElementById("send_nonce").value,ppp:t,page:s},success(a){s=a.data.page,n=a.data.max,p.append(e("<li>").text(`${s} of ${n}`)),s<n?o():(p.append(e("<li>").text(window.texts.end)),d.prop("disabled",!1))},error(a,t,s){d.prop("disabled",!1),void 0!==a.responseJSON&&void 0!==a.responseJSON.data&&void 0!==a.responseJSON.data.message?p.append(e("<li>").text(a.responseJSON.data.message)):p.append(e("<li>").text(s))}})}d.prop("disabled",!0),p.append(e("<li>").text(window.texts.start)),o()})});
 </script>
 SCRIPT;
 		}
@@ -209,7 +209,7 @@ add_action( 'wp_ajax_gg_send_products', function() {
 	] );
 } );
 
-function gg_send_products_to_algolia( int $id, int $ppp = -1, int $page = 1 ): array {
+function gg_send_products_to_algolia( int $id = 0, int $ppp = -1, int $page = 1 ): array {
 	$options = get_option( 'gg_algolia_indexer' );
 
 	if ( empty( $options ) ) {
@@ -219,160 +219,55 @@ function gg_send_products_to_algolia( int $id, int $ppp = -1, int $page = 1 ): a
 		];
 	}
 
-	$max  = 0;
-	$args = [
-		'status'   => 'publish',
-		'paginate' => false,
-		'limit'    => -1,
-	];
+	/**
+	 * List of item to be indexed and total items.
+	 *
+	 * @since 1.0.2
+	 *
+	 * @param array $records {
+	 *     @type array $data Items to be indexed in Algolia.
+	 *     @type int   $max  Total items.
+	 * }
+	 * @param int   $id      Post ID. Used when sending only one item.
+	 * @param int   $ppp     Posts per page.
+	 * @param int   $page    Current page.
+	 */
+	$records = apply_filters( 'gg_algolia_records', [], $id, $ppp, $page );
 
-	if ( -1 !== $ppp ) {
-		$args['paginate'] = true;
-		$args['limit']    = $ppp;
-		$args['page']     = $page;
-	}
+	if ( ! empty( $records['data'] ) ) {
+		$client = Algolia\AlgoliaSearch\SearchClient::create( $options['application_id'], $options['admin_key'] );
+		$index  = $client->initIndex( $options['index_name'] );
 
-	if ( ! empty( $id ) ) {
-		$args['include'] = [ $id ];
-	}
+		/**
+		 * Change an index’s settings.
+		 *
+		 * Only specified settings are overridden; unspecified settings are left unchanged.
+		 * Specifying null for a setting resets it to its default value.
+		 *
+		 * @link https://www.algolia.com/doc/api-reference/api-methods/set-settings/
+		 * @since 1.0.2
+		 *
+		 * @param array $settings Index's settings.
+		 */
+		$settings = apply_filters( 'gg_algolia_settings', [] );
 
-	$query    = wc_get_products( $args );
-	$products = -1 !== $ppp ? $query->products : $query;
-	$records  = [];
-
-	if ( -1 !== $ppp ) {
-		$max = $query->max_num_pages;
-	}
-
-	foreach ( $products as $product ) {
-		$product_type_price = gg_get_product_type_price( $product );
-		$sale_price         = $product_type_price['sale_price'];
-		$regular_price      = $product_type_price['regular_price'];
-
-		preg_match( '/<img(.*)src(.*)=(.*)"(.*)"/U', $product->get_image(), $result );
-
-		$product_image    = array_pop( $result );
-		$product_id       = (int) $product->get_id();
-		$desc             = $product->get_short_description();
-		$video            = get_field( 'upload_video', $product_id );
-		$video_aws        = get_field( 'watermarked_video', $product_id );
-		$selected_creator = get_field( 'creator', $product_id );
-		$creator_keywords = '';
-		$creator_rating   = 0.0;
-
-		if ( $selected_creator ) {
-			$creator_keywords = get_field( 'creator_keywords', $selected_creator->ID );
-			$creator_rating   = (float) get_field( 'rating-creator', $selected_creator->ID );
+		if ( ! empty( $settings ) ) {
+			$index->setSettings( $settings );
 		}
 
-		$taxonomies = [];
-		$record     = [];
-		$keywords   = [];
-
-		foreach ( [
-			'product_cat',
-			'gender',
-			'ages',
-			'ethnicity',
-			'industry',
-			'product_video_type',
-			'type_product',
-			'product_tag',
-		] as $taxo ) {
-			$the_taxo = get_the_terms( $product_id, $taxo );
-
-			if ( false === $the_taxo ) {
-				continue;
-			}
-
-			foreach ( $the_taxo as $term ) {
-				if ( 'product_tag' === $taxo ) {
-					$keywords[] = strtolower( $term->name );
-				} else {
-					$taxonomies[ $taxo ][] = $term->name;
-
-					if ( 'product_cat' === $taxo ) {
-						if ( 0 !== $term->parent ) {
-							$parent      = get_term( $term->parent, $taxo );
-							$parent_slug = str_replace( '-', '_', $parent->slug );
-
-							if ( ! isset( $taxonomies[ $parent_slug ] ) || ! is_array( $taxonomies[ $parent_slug ] ) ) {
-								$taxonomies[ $parent_slug ] = [];
-							}
-
-							if ( ! in_array( 'All ' . $parent->name, $taxonomies[ $parent_slug ], true ) ) {
-								$taxonomies[ $parent_slug ][] = 'All ' . $parent->name;
-							}
-
-							if ( ! in_array( $term->name, $taxonomies[ $parent_slug ], true ) ) {
-								$taxonomies[ $parent_slug ][] = $term->name;
-							}
-						} else {
-							$slug = str_replace( '-', '_', $term->slug );
-
-							if ( ! isset( $taxonomies[ $slug ] ) ) {
-								$taxonomies[ $slug ] = 'designed_to_fit_all_categories' === $slug ?
-									true : [];
-							}
-						}
-					}
-				}
-			}
+		try {
+			$index->saveObjects( $records['data'] );
+		} catch ( Exception $e ) {
+			return [
+				'error'   => true,
+				'message' => $e->getMessage(),
+			];
 		}
-
-		$record['objectID']        = $product_id;
-		$record['productName']     = $product->get_name();
-		$record['productLink']     = get_permalink( $product_id );
-		$record['addToCart']       = sprintf( '?add-to-cart=%d&variation_id=%d', $product_id, $product->get_children()[0] );
-		$record['productImage']    = $product_image;
-		$record['productDesc']     = empty( $desc ) ? $product->get_description() : $desc;
-		$record['priceRegular']    = $regular_price;
-		$record['priceSale']       = $sale_price;
-		$record['onSale']          = $product->is_on_sale();
-		$record['taxonomies']      = $taxonomies;
-		$record['duration']        = get_field( 'video_duration', $product_id );
-		$record['videoURL']        = $video ? $video['url'] : null;
-		$record['videoAWS']        = $video_aws ? do_shortcode( $video_aws ) : null;
-		$record['creatorKeywords'] = $creator_keywords;
-		$record['keywords']        = implode( ',', $keywords );
-		$record['creatorRating']   = $creator_rating;
-
-		$records[] = $record;
-	}
-
-	wp_reset_postdata();
-
-	$client = Algolia\AlgoliaSearch\SearchClient::create( $options['application_id'], $options['admin_key'] );
-	$index  = $client->initIndex( $options['index_name'] );
-
-	$index->setSettings( [
-		'attributesForFaceting' => [
-			'searchable(taxonomies)',
-			'filterOnly(onSale)',
-			// 'searchable(taxonomies.cosmetics)',
-			// 'searchable(taxonomies.health_wellness)',
-			// 'searchable(taxonomies.consumer_goods)',
-		],
-		'searchableAttributes'  => [
-			'productName',
-			'productDesc',
-			'creatorKeywords',
-			'keywords',
-		],
-	] );
-
-	try {
-		$index->saveObjects( $records );
-	} catch ( Exception $e ) {
-		return [
-			'error'   => true,
-			'message' => $e->getMessage(),
-		];
 	}
 
 	return [
 		'error' => false,
-		'max'   => $max,
+		'max'   => $records['max'],
 	];
 }
 

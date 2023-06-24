@@ -39,8 +39,12 @@ jQuery( $ => {
 				error: ( xhr, status, error ) => {
 					$button.prop( 'disabled', false );
 
-					if ( xhr.responseJSON.data !== undefined && xhr.responseJSON.data.message !== undefined ) {
-						$progress.append( $( '<li>' ).text( xhr.responseJSON.data.message ) );
+					if ( xhr.responseJSON !== undefined ) {
+						if ( xhr.responseJSON.data !== undefined && xhr.responseJSON.data.message !== undefined ) {
+							$progress.append( $( '<li>' ).text( xhr.responseJSON.data.message ) );
+						} else {
+							$progress.append( $( '<li>' ).text( error ) );
+						}
 					} else {
 						$progress.append( $( '<li>' ).text( error ) );
 					}
