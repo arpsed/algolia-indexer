@@ -17,7 +17,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'AGLIDX_VER', '1.0.2' );
+define( 'AGLIDX_VER', '1.0.3' );
 define( 'AGLIDX_PATH', plugin_dir_path( __FILE__ ) );
 define( 'AGLIDX_URL', plugin_dir_url( __FILE__ ) );
 
@@ -51,7 +51,12 @@ add_action( 'admin_menu', function() {
 			$admin_key   = esc_html__( 'Admin/Write API Key', 'aglidx' );
 			$index_name  = esc_html__( 'Index Name', 'aglidx' );
 			$auto_add    = esc_html__( 'Automatically index new items', 'aglidx' );
-			$post_type   = esc_html__( 'Post type', 'aglidx' );
+			$post_type   = esc_html__( 'Post type(s)', 'aglidx' );
+			$pt_info     = sprintf(
+				// translators: %s value of $auto_add
+				esc_html__( 'This is required when "%s" is active, so as not to index all post types.', 'aglidx' ),
+				$auto_add
+			);
 			$button_save = esc_html__( 'Save Changes', 'aglidx' );
 			$button_send = esc_html__( 'Send Items to Algolia', 'aglidx' );
 			$options     = get_option( 'gg_algolia_indexer' );
@@ -64,12 +69,25 @@ add_action( 'admin_menu', function() {
 					'admin_key'      => '',
 					'index_name'     => '',
 					'auto_add'       => false,
-					'post_type'      => '',
+					'post_types'     => [],
 				];
 			}
 
 			$checked  = checked( true, $options['auto_add'], false );
 			$per_page = esc_html__( 'items each', 'aglidx' );
+			$postypes = '';
+
+			foreach ( get_post_types( [
+				'public'             => true,
+				'publicly_queryable' => true,
+			], 'objects' ) as $pt ) {
+				$postypes .= sprintf(
+					'<option value="%1$s"%3$s>%2$s (%1$s)</option>',
+					esc_attr( $pt->name ),
+					esc_attr( $pt->label ),
+					in_array( $pt->name, $options['post_types'], true ) ? ' selected' : ''
+				);
+			}
 
 			// phpcs:ignore
 			echo <<<HTML
@@ -105,18 +123,19 @@ add_action( 'admin_menu', function() {
 				</tr>
 				<tr>
 					<th scope="row">
-						<label for="postType">{$post_type}</label>
-					</th>
-					<td>
-						<input id="postType" type="text" name="post_type" value="{$options['post_type']}">
-					</td>
-				</tr>
-				<tr>
-					<th scope="row">
 						<label for="autoAdd">{$auto_add}</label>
 					</th>
 					<td>
 						<input id="autoAdd" type="checkbox" name="auto_add" value="1" {$checked}>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row">
+						<label for="postType">{$post_type}</label>
+					</th>
+					<td>
+						<select id="postType" name="post_types[]" multiple>{$postypes}</select>
+						<p class="description">{$pt_info}</p>
 					</td>
 				</tr>
 			</tbody>
@@ -160,13 +179,19 @@ SCRIPT;
 
 add_action( 'admin_post_gg_algolia_indexer', function() {
 	if ( ! empty( $_POST ) && check_admin_referer( 'gg_algolia_indexer', 'idx_nonce' ) ) {
-		$request = wp_unslash( $_POST );
+		$request   = $_POST;
+		$posttypes = [];
+
+		foreach ( $request['post_types'] as $posttype ) {
+			$posttypes[] = sanitize_text_field( wp_unslash( $posttype ) );
+		}
+
 		$options = [
-			'application_id' => sanitize_text_field( $request['application_id'] ),
-			'admin_key'      => sanitize_text_field( $request['admin_key'] ),
-			'index_name'     => sanitize_text_field( $request['index_name'] ),
+			'application_id' => sanitize_text_field( wp_unslash( $request['application_id'] ) ),
+			'admin_key'      => sanitize_text_field( wp_unslash( $request['admin_key'] ) ),
+			'index_name'     => sanitize_text_field( wp_unslash( $request['index_name'] ) ),
 			'auto_add'       => isset( $request['auto_add'] ) ? true : false,
-			'post_type'      => sanitize_text_field( $request['post_type'] ),
+			'post_types'     => $posttypes,
 		];
 
 		update_option( 'gg_algolia_indexer', $options, false );
@@ -187,8 +212,8 @@ add_action( 'save_post', function( $post_id, $post ) {
 		return;
 	}
 
-	if ( isset( $options['post_type'] ) && ! empty( $options['post_type'] ) ) {
-		if ( $options['post_type'] !== $post->post_type ) {
+	if ( isset( $options['post_types'] ) && ! empty( $options['post_types'] ) ) {
+		if ( ! in_array( $post->post_type, $options['post_types'], true ) ) {
 			return;
 		}
 	}
@@ -261,7 +286,11 @@ function gg_send_items_to_algolia( int $id = 0, int $ppp = -1, int $page = 1 ): 
 	 * @param int   $ppp     Posts per page.
 	 * @param int   $page    Current page.
 	 */
-	$records = apply_filters( 'gg_algolia_records', [], $id, $ppp, $page );
+	$records = [
+		'data' => [],
+		'max'  => 0,
+	];
+	$records = apply_filters( 'gg_algolia_records', $records, $id, $ppp, $page );
 
 	if ( ! empty( $records['data'] ) ) {
 		$client = Algolia\AlgoliaSearch\SearchClient::create( $options['application_id'], $options['admin_key'] );
